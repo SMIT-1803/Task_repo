@@ -153,7 +153,6 @@ export default function InsuranceConsensus() {
         setProgress(allResults.length);
       }
       setResults(allResults);
-      setLoading(false)
     } catch (error) {
       setError(error.message || "Something went wrong while running assessments.");
     } finally {
