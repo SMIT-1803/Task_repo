@@ -59,6 +59,4 @@ app.post("/api/assess", async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Backend running at http://localhost:${PORT}`);
-});
+app.listen(PORT, () => {});
