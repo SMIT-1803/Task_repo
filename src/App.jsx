@@ -1,3 +1,4 @@
+import "./App.css"
 import { useState } from "react";
 
 const CLAIMS = [
@@ -15,6 +16,16 @@ const CLAIMS = [
 
 const RISK_THRESHOLD = 30;
 const PAYOUT_THRESHOLD = 0.3;
+
+const RISK_CONFIDENCE_WEIGHT = 30;
+const PAYOUT_CONFIDENCE_WEIGHT = 30;
+ 
+const HIGH_CONFIDENCE_MIN = 80;
+const MEDIUM_CONFIDENCE_MIN = 60;
+ 
+const MISSING_ASSESSOR_CONFIDENCE_PENALTY = 40;
+ 
+const ESCALATE_CONFIDENCE_CAP = 50;
 
 function mockGemini(claim) {
   const seeds = [22, 67, 41, 88, 15, 54, 79, 33];
@@ -79,7 +90,7 @@ export default function InsuranceConsensus() {
     if (validAssessments < models.length) {
       return {
         status: "ESCALATE",
-        confidence: (validAssessments == 0) ? 0 : (100 - (models.length - validAssessments) * 40),
+        confidence: (validAssessments == 0) ? 0 : (100 - (models.length - validAssessments) * MISSING_ASSESSOR_CONFIDENCE_PENALTY),
         confidenceLabel: "Low",
         finalRiskScore: null,
         finalPayout: null,
@@ -91,18 +102,18 @@ export default function InsuranceConsensus() {
     const payoutSpreadPct = claim.amount > 0 ? payoutSpread / claim.amount : 0;
 
     let confidence = 100;
-    confidence -= Math.round((riskSpread / RISK_THRESHOLD) * 30);
-    confidence -= Math.round((payoutSpreadPct / PAYOUT_THRESHOLD) * 30);
+    confidence -= Math.round((riskSpread / RISK_THRESHOLD) * RISK_CONFIDENCE_WEIGHT);
+    confidence -= Math.round((payoutSpreadPct / PAYOUT_THRESHOLD) * PAYOUT_CONFIDENCE_WEIGHT);
     if (confidence < 0) {
       confidence = 0;
     }
 
     if (riskSpread > RISK_THRESHOLD || payoutSpreadPct > PAYOUT_THRESHOLD) {
-      confidence = Math.min(confidence, 50);
+      confidence = Math.min(confidence, ESCALATE_CONFIDENCE_CAP);
       return {
         status: "ESCALATE",
         confidence: confidence,
-        confidenceLabel: confidence >= 80 ? "High" : confidence >= 55 ? "Medium" : "Low",
+        confidenceLabel: confidence >= HIGH_CONFIDENCE_MIN ? "High" : confidence >= MEDIUM_CONFIDENCE_MIN ? "Medium" : "Low",
         finalRiskScore: null,
         finalPayout: null,
       }
@@ -112,7 +123,7 @@ export default function InsuranceConsensus() {
     return {
       status: "CONSENSUS",
       confidence,
-      confidenceLabel: confidence >= 80 ? "High" : confidence >= 60 ? "Medium" : "Low",
+      confidenceLabel: confidence >= HIGH_CONFIDENCE_MIN ? "High" : confidence >= MEDIUM_CONFIDENCE_MIN ? "Medium" : "Low",
       finalRiskScore,
       finalPayout
     };
@@ -148,8 +159,8 @@ export default function InsuranceConsensus() {
 
         const m3 = mockGemini(claim);
         const models = [m1, m2, m3]
-        const consensus = decision(claim, models);
-        allResults.push({ claim, models: { a: m1, b: m2, gemini: m3 }, consensus });
+        const decision_result = decision(claim, models);
+        allResults.push({ claim, models: { a: m1, b: m2, gemini: m3 }, decision_result });
         setProgress(allResults.length);
       }
       setResults(allResults);
@@ -160,74 +171,76 @@ export default function InsuranceConsensus() {
     }
   }
   return (
-
-    <div style={{ padding: 32, maxWidth: 900, margin: "0 auto", fontFamily: "sans-serif" }}>
+    <div className="page-wrapper">
       <h1>🏦 Insurance Claim Consensus Engine</h1>
-      <p style={{ color: "#666", marginBottom: 24 }}>Three models assess each claim independently.</p>
+      <p className="page-subtitle">Three models assess each claim independently.</p>
 
       <button
         onClick={runAssessment}
         disabled={loading}
-        style={{ padding: "12px 32px", fontSize: 16, background: loading ? "#6b7280" : "#1a1a2e", color: "white", border: "none", borderRadius: 6, cursor: loading ? "not-allowed" : "pointer", marginBottom: 24 }}
+        className={`run-btn ${loading ? "run-btn--loading" : "run-btn--idle"}`}
       >
         {loading ? `Assessing claim ${progress} of ${CLAIMS.length}...` : "Run Assessment"}
       </button>
 
       {error && (
-        <div style={{ background: "#fee2e2", border: "1px solid #fca5a5", borderRadius: 8, padding: 16, marginBottom: 24, color: "#991b1b", fontSize: 14 }}>
+        <div className="error-box">
           <strong>Error:</strong> {error}
         </div>
       )}
 
       {results && results.map((r) => {
-        const statusColor = r.consensus.status === "ESCALATE" ? "red" : "green";
+        const statusClass = r.decision_result.status === "ESCALATE"
+          ? "consensus-panel__status--escalate"
+          : "consensus-panel__status--approve";
+
         return (
-          <div key={r.claim.id} style={{ border: "1px solid #e5e7eb", borderRadius: 10, padding: 20, marginBottom: 16 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 2 }}>CLAIM #{r.claim.id}</div>
-                <div style={{ fontSize: 14, color: "#374151" }}>{r.claim.description}</div>
+          <div key={r.claim.id} className="claim-card">
+            <div className="claim-card__header">
+              <div className="claim-card__meta">
+                <div className="claim-card__label">CLAIM #{r.claim.id}</div>
+                <div className="claim-card__description">{r.claim.description}</div>
               </div>
-              <div style={{ textAlign: "right", marginLeft: 16, flexShrink: 0 }}>
-                <div style={{ fontSize: 11, color: "#9ca3af" }}>Claimed</div>
-                <div style={{ fontWeight: 700 }}>${r.claim.amount.toLocaleString()}</div>
+              <div className="claim-card__amount">
+                <div className="claim-card__amount-label">Claimed</div>
+                <div className="claim-card__amount-value">${r.claim.amount.toLocaleString()}</div>
               </div>
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 12 }}>
-              {[["Assessor A", r.models.a, "#dbeafe"], ["Assessor B", r.models.b, "#dcfce7"], ["Gemini (mock)", r.models.gemini, "#f3e8ff"]].map(([name, m, bg]) => (
-                <div key={name} style={{ background: bg, borderRadius: 8, padding: 10, fontSize: 12 }}>
-                  <div style={{ fontWeight: 600, marginBottom: 4, fontSize: 11 }}>{name}</div>
+            <div className="assessors-grid">
+              {[
+                ["Assessor A", r.models.a, "assessor-card--a"],
+                ["Assessor B", r.models.b, "assessor-card--b"],
+                ["Gemini (mock)", r.models.gemini, "assessor-card--gemini"],
+              ].map(([name, m, modifier]) => (
+                <div key={name} className={`assessor-card ${modifier}`}>
+                  <div className="assessor-card__name">{name}</div>
                   <div>Risk: <strong>{m.riskScore}/100</strong></div>
                   <div>Payout: <strong>${m.recommendedPayout}</strong></div>
-                  <div style={{ color: "#6b7280", marginTop: 4, fontSize: 11, fontStyle: "italic" }}>{m.reasoning}</div>
+                  <div className="assessor-card__reasoning">{m.reasoning}</div>
                 </div>
               ))}
             </div>
 
-            <div style={{ background: "#1a1a2e", color: "white", borderRadius: 8, padding: "12px 16px", display: "flex", flexDirection: "column", gap: "5px", fontSize: 14, marginBottom: 12 }}>
-
-              <div>Status: <strong style={{ color: statusColor }}>{r.consensus.status}</strong></div>
-              <div>Confidence: <strong>{r.consensus.confidenceLabel} {`(${r.consensus.confidence}/100)`} </strong></div>
+            <div className="consensus-panel consensus-panel--status">
+              <div>Status: <strong className={statusClass}>{r.decision_result.status}</strong></div>
+              <div>Confidence: <strong>{r.decision_result.confidenceLabel} {`(${r.decision_result.confidence}/100)`}</strong></div>
             </div>
 
-            <div style={{ background: "#1a1a2e", color: "white", borderRadius: 8, padding: "12px 16px", display: "flex", justifyContent: "space-between", fontSize: 14 }}>
-              {(r.consensus.finalPayout == null && r.consensus.finalRiskScore == null) ?
+            <div className="consensus-panel consensus-panel--payout">
+              {(r.decision_result.finalPayout == null && r.decision_result.finalRiskScore == null) ? (
                 <span>
-                  Action: <strong style={{ color: "red" }}>Human review required</strong>
-                </span> :
+                  Action: <strong className="consensus-panel__review">Human review required</strong>
+                </span>
+              ) : (
                 <>
-                  <span>
-                    Final Risk: <strong>{r.consensus.finalRiskScore} / 100</strong>
-                  </span>
-                  <span>
-                    Recommended Payout: <strong>${r.consensus.finalPayout}</strong>
-                  </span>
+                  <span>Final Risk: <strong>{r.decision_result.finalRiskScore} / 100</strong></span>
+                  <span>Recommended Payout: <strong>${r.decision_result.finalPayout}</strong></span>
                 </>
-              }
+              )}
             </div>
           </div>
-        )
+        );
       })}
     </div>
   );
